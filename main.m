@@ -24,32 +24,11 @@ dt      = 1e-3;        % smaller dt for better attitude dynamics resolution
 t       = 0:dt:Tend;
 N       = numel(t);
 
-% Desired trajectory – Ascending spiral
-% R      = 1.0;          % [m] spiral radius
-% omega_traj  = 0.5;     % [rad/s] angular speed
-% z0     = 0.0;          % [m] initial altitude
-% zf     = 1.5;          % [m] final altitude at t = Tend
-% vz     = (zf - z0)/Tend;  % [m/s] vertical speed
-% 
-% Position
-% xi_d = @(tt) [ R*cos(omega_traj*tt);         % x
-%     R*sin(omega_traj*tt);         % y
-%     z0 + vz*tt ];            % z
-% 
-% Velocity
-% xi_d_dot = @(tt) [ -R*omega_traj*sin(omega_traj*tt);   % ẋ
-%     R*omega_traj*cos(omega_traj*tt);   % ẏ
-%     vz ];                    % ż (constant)
-% 
-% Acceleration
-% xi_d_ddot = @(tt) [ -R*omega_traj^2*cos(omega_traj*tt);  % ẍ
-%     -R*omega_traj^2*sin(omega_traj*tt);  % ÿ
-%     0 ];                      % z̈
-
-%run('Trajectory_spiral.m');
-run('Trajecotory_lemniscate.m');
-%run('Trajecotry_cylindrical.m');
-%run('Target_point.m');
+%% Desired trajectory – Ascending spiral
+% run('Trajectory_spiral.m');
+% run('Trajectory_lemniscate.m');
+run('Trajectory_cylindrical.m');
+% run('Target_point.m');
 
 %% State vector: X = [xi(3); v(3); q(4); Omega(3)]
 % quaternion q = [qw; qx; qy; qz], unit norm
@@ -221,8 +200,8 @@ xi_sim = X(1:3, :);
 
 % 1. Visualizzazione 3D della Traiettoria
 figure('Name', 'Traiettoria Quadricottero 3D', 'Color', 'w');
-plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), 'r--', 'LineWidth', 1.5); hold on;
-plot3(xi_sim(1,:), xi_sim(2,:), xi_sim(3,:), 'b', 'LineWidth', 1.5);
+plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), 'g--', 'LineWidth', 1.5); hold on;
+plot3(xi_sim(1,:), xi_sim(2,:), xi_sim(3,:), 'c', 'LineWidth', 1.5);
 grid on; axis equal;
 xlabel('X [m]'); ylabel('Y [m]'); zlabel('Z [m]');
 legend('Desiderata (Spiral)', 'Simulata (Backstepping)');
@@ -233,23 +212,23 @@ view(45, 30);
 figure('Name', 'Analisi Assi x, y, z', 'Color', 'w');
 
 subplot(3,1,1);
-plot(t, xi_d_all(1,:), 'r--', t, xi_sim(1,:), 'b');
+plot(t, xi_d_all(1,:), 'g--', t, xi_sim(1,:), 'c');
 ylabel('x [m]'); grid on;
 legend('Desiderata', 'Simulata');
 title('Inseguimento Posizione sui singoli assi');
 
 subplot(3,1,2);
-plot(t, xi_d_all(2,:), 'r--', t, xi_sim(2,:), 'b');
+plot(t, xi_d_all(2,:), 'g--', t, xi_sim(2,:), 'c');
 ylabel('y [m]'); grid on;
 
 subplot(3,1,3);
-plot(t, xi_d_all(3,:), 'r--', t, xi_sim(3,:), 'b');
+plot(t, xi_d_all(3,:), 'g--', t, xi_sim(3,:), 'c');
 ylabel('z [m]'); xlabel('Tempo [s]'); grid on;
 
 % 3. Plot dell'Errore di Posizione
 error_pos = xi_sim - xi_d_all;
 figure('Name', 'Errore di Inseguimento', 'Color', 'w');
-plot(t, error_pos(1,:), 'r', t, error_pos(2,:), 'g', t, error_pos(3,:), 'b');
+plot(t, error_pos(1,:), 'r', t, error_pos(2,:), 'g', t, error_pos(3,:), 'c');
 grid on;
 xlabel('Tempo [s]'); ylabel('Errore [m]');
 legend('Errore x', 'Errore y', 'Errore z');
