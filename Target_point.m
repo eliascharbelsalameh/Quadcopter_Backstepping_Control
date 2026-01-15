@@ -2,7 +2,7 @@
 % Traiettoria costante verso un punto fisso
 
 % Punto fisso desiderato
-target_point = [10.0; 10.0; 10.5];  % x, y, z
+target_point = [10.0; 10.0; 10];  % x, y, z
 
 % Funzioni con le stesse variabili degli altri script
 xi_d = @(tt) target_point;       % posizione sempre uguale
