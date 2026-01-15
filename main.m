@@ -25,8 +25,8 @@ t       = 0:dt:Tend;
 N       = numel(t);
 
 %% Desired trajectory – Ascending spiral
-run('Trajectory_spiral.m');
-%run('Trajectory_lemniscate.m');
+%run('Trajectory_spiral.m');
+run('Trajectory_lemniscate.m');
 %run('Trajectory_cylindrical.m');
 %run('Target_point.m');
 
@@ -35,7 +35,7 @@ run('Trajectory_spiral.m');
 X       = zeros(13, N);
 
 % Initial conditions:
-xi0     = [10; 10; 10];              % initial position
+xi0     = [0; 0; 0];              % initial position
 %xi0     = xi_d(0);                  % instead of [0;0;0]
 v0      = [0; 0; 0];                % initial velocity
 q0      = [1; 0; 0; 0];             % initial attitude (no rotation)

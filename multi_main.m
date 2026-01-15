@@ -222,55 +222,110 @@ end
 legend('show');
 title('Platooning (Daisy-Chain) Control');
 
-%% Animation
-fprintf('Starting Platoon Animation...\n');
-figure('Name', 'Platoon Animation', 'Color', 'w');
-axis equal; grid on; hold on; view(45, 30);
-xlim([min(xi_d_all(1,:))-5, max(xi_d_all(1,:))+5]);
-ylim([min(xi_d_all(2,:))-5, max(xi_d_all(2,:))+5]);
-zlim([0, max(xi_d_all(3,:))+2]);
-xlabel('X'); ylabel('Y'); zlabel('Z');
+%% 3D Animation + Video Export (MULTI-ROBOT – IMPROVED)
+fprintf('Starting 3D Animation...\n');
 
-% Static Path
-plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), 'g--', 'LineWidth', 1);
+anim_speed  = 100;
+scale_arrow = 0.6;
+margin      = 2;   % extra space around trajectories
 
-drones = gobjects(num_agents, 1);
-arrows = gobjects(num_agents, 1);
-connections = gobjects(num_agents-1, 1); % Lines connecting followers to predecessors
+%% ===== PRECOMPUTE GLOBAL AXIS LIMITS (ALL ROBOTS) =====
+all_pos = reshape(X(1:3,:,:), 3, []);
+xmin = min(all_pos(1,:)) - margin;
+xmax = max(all_pos(1,:)) + margin;
+ymin = min(all_pos(2,:)) - margin;
+ymax = max(all_pos(2,:)) + margin;
+zmin = min(all_pos(3,:)) - margin;
+zmax = max(all_pos(3,:)) + margin;
+
+%% ===== FIGURE =====
+figure('Name', '3D Platoon Animation', 'Color', 'w');
+axis equal; grid on; hold on;
+view(45,30);
+xlabel('X [m]'); ylabel('Y [m]'); zlabel('Z [m]');
+title('Multi-Agent Platooning Animation');
+
+xlim([xmin xmax]);
+ylim([ymin ymax]);
+zlim([zmin zmax]);
+
+%% ===== REFERENCE TRAJECTORY =====
+h_ref = plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), ...
+              'k--', 'LineWidth', 1.5);
+
+%% ===== GRAPHICS OBJECTS =====
+colors  = {'r','b','g'};
+labels  = {'Leader','Follower 1','Follower 2'};
+
+h_drone = gobjects(num_agents,1);
+h_trail = gobjects(num_agents,1);
+h_arrow = gobjects(num_agents,1);
 
 for i = 1:num_agents
-    drones(i) = plot3(0,0,0, 'o', 'MarkerFaceColor', colors{i}, 'Color', 'w', 'MarkerSize', 6);
-    arrows(i) = line([0 0],[0 0],[0 0], 'Color', 'y', 'LineWidth', 1);
-end
-% Visual connections between platoon members
-for i = 1:num_agents-1
-    connections(i) = line([0 0],[0 0],[0 0], 'Color', [0.5 0.5 0.5], 'LineStyle', ':');
+    h_drone(i) = plot3(0,0,0,'o', ...
+        'Color', colors{i}, ...
+        'MarkerFaceColor', colors{i}, ...
+        'MarkerSize', 8);
+
+    h_trail(i) = plot3(0,0,0,'-', ...
+        'Color', colors{i}, ...
+        'LineWidth', 1.2);
+
+    h_arrow(i) = line([0 0],[0 0],[0 0], ...
+        'Color', colors{i}, ...
+        'LineWidth', 2);
 end
 
-skip = 100;
-for k = 1:skip:N
-    time_str = sprintf('Time: %.2f s', t(k));
-    title(time_str);
-    
-    positions = squeeze(X(1:3, k, :)); % 3 x Agents
-    
+%% ===== CORRECT LEGEND (USING HANDLES) =====
+legend([h_ref; h_drone], ...
+       [{'Reference'}, labels], ...
+       'Location','best');
+
+%% ===== VIDEO WRITER =====
+video_name = 'Platooning_Animation.mp4';
+v = VideoWriter(video_name,'MPEG-4');
+v.FrameRate = 30;
+v.Quality   = 100;
+open(v);
+
+%% ===== ANIMATION LOOP =====
+for k = 1:anim_speed:N
+
     for i = 1:num_agents
-        pos = positions(:, i);
+        pos  = X(1:3, k, i);
         quat = X(7:10, k, i);
-        set(drones(i), 'XData', pos(1), 'YData', pos(2), 'ZData', pos(3));
-        
+
+        % Drone body
+        set(h_drone(i), ...
+            'XData', pos(1), ...
+            'YData', pos(2), ...
+            'ZData', pos(3));
+
+        % Trail
+        set(h_trail(i), ...
+            'XData', X(1,1:k,i), ...
+            'YData', X(2,1:k,i), ...
+            'ZData', X(3,1:k,i));
+
+        % Heading arrow (body X-axis)
         R = quat2rotm(quat');
-        head = pos + R(:,1)*0.8;
-        set(arrows(i), 'XData', [pos(1) head(1)], 'YData', [pos(2) head(2)], 'ZData', [pos(3) head(3)]);
-        
-        % Draw line to predecessor
-        if i > 1
-             predecessor = positions(:, i-1);
-             set(connections(i-1), 'XData', [pos(1) predecessor(1)], ...
-                                   'YData', [pos(2) predecessor(2)], ...
-                                   'ZData', [pos(3) predecessor(3)]);
-        end
+        heading = R(:,1);
+        arrow_end = pos + scale_arrow * heading;
+
+        set(h_arrow(i), ...
+            'XData', [pos(1) arrow_end(1)], ...
+            'YData', [pos(2) arrow_end(2)], ...
+            'ZData', [pos(3) arrow_end(3)]);
     end
+
+    title(sprintf('Simulation Time: %.2f s', t(k)));
     drawnow limitrate;
-    pause(0.01);
+
+    frame = getframe(gcf);
+    writeVideo(v, frame);
 end
+
+%% ===== CLOSE VIDEO =====
+close(v);
+fprintf('Video successfully saved: %s\n', video_name);
+
