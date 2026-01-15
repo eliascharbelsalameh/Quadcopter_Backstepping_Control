@@ -8,7 +8,7 @@ omega_traj = 0.8;          % Angular velocity [rad/s]
 z0         = 0.0;          % Initial altitude
 zf         = 2.0;          % Final altitude
 
-% Simulation duration (must match Tend in main script)
+% Simulation duration 
 Tend       = 40;           
 
 % Growth rates

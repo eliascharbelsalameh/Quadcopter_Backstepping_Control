@@ -10,7 +10,6 @@ clear;
 clc; 
 close all;
 
-%% Parameters
 % Physical parameters
 g       = 9.81;
 m       = 0.6;
@@ -24,19 +23,18 @@ dt      = 1e-3;        % smaller dt for better attitude dynamics resolution
 t       = 0:dt:Tend;
 N       = numel(t);
 
-%% Desired trajectory – Ascending spiral
-run('Trajectory_spiral.m');
-%run('Trajectory_lemniscate.m');
+
+%run('Trajectory_spiral.m');
+run('Trajectory_lemniscate.m');
 %run('Trajectory_cylindrical.m');
 %run('Target_point.m');
 
 %% State vector: X = [xi(3); v(3); q(4); Omega(3)]
 % quaternion q = [qw; qx; qy; qz], unit norm
-X       = zeros(13, N);
+X = zeros(13, N);
 
 % Initial conditions:
-xi0     = [10; 10; 10];              % initial position
-%xi0     = xi_d(0);                  % instead of [0;0;0]
+xi0     = [0; 0; 0];                % initial position
 v0      = [0; 0; 0];                % initial velocity
 q0      = [1; 0; 0; 0];             % initial attitude (no rotation)
 Omega0  = [0; 0; 0];                % initial angular velocity
@@ -51,10 +49,13 @@ k1  = 1;
 k2  = 1;
 k3  = 1;
 k4  = 1;
+
 a   = 1;
+
+%Offset
 d   = 0.0;
 
-%% New system
+%% New system after the control law
 e1 = zeros(3, N);
 e1_dot = zeros(3, N);
 e2 = zeros(3, N);
@@ -82,7 +83,7 @@ for k = 1:N-1
     q_k = X(7:10,k);
     omega_k = X(11:13,k);
 
-    % target
+    % target, first and second derivate
     xi_d_val      = xi_d(tk);
     xi_d_dot_val  = xi_d_dot(tk);
     xi_d_ddot_val = xi_d_ddot(tk);
@@ -105,17 +106,18 @@ for k = 1:N-1
         end
     end
     % --- 
-
-    e1(:,k) = -(a*(xi_k - xi_d_val)-d); % e1
+    
+    %% Translational control part
+    e1(:,k) = -(a*(xi_k - xi_d_val)-d); 
     xi_v_dot(:,k) = (k1*e1(:,k))/a + xi_d_dot_val;
-    e2(:,k) = xi_dot_k - xi_v_dot(:,k); % e2
-    e1_dot(:,k) = -a*e2(:,k)-k1*e1(:,k); % e1dot
+    e2(:,k) = xi_dot_k - xi_v_dot(:,k); 
+    e1_dot(:,k) = -a*e2(:,k)-k1*e1(:,k); 
     % F_des: control input
     vec1 = m * ( (a * e1(:,k)) - F_ext + ...
                  ((k1 * e1_dot(:,k)) / a + xi_d_ddot_val) - ...
                  (k2 * e2(:,k)) );
 
-    q_row = q_k.'; %q as a row 
+    q_row = q_k.';  
     q_left = quatinv(q_row);
     vec_quat = [0, vec1'];
 
@@ -126,7 +128,7 @@ for k = 1:N-1
     Fu(:,k) = F_des;
     F_des_norm(:,k) = norm(F_des);
 
-    % e2_dot
+    
     vec2 = Fu(:,k)/m;
     q_conj2 = quatconj(q_row);
     vec_quat2 = [0, vec2'];
@@ -144,6 +146,7 @@ for k = 1:N-1
     end
     
     z_d = F_des / F_des_norm(:,k);
+    %Temporal axis
     l_vec = [-sin(psi_d(:,k)); cos(psi_d(:,k)); 0];
 
     l_cross_zd = cross(l_vec, z_d);
@@ -158,26 +161,34 @@ for k = 1:N-1
         end
         warning('Singularity detected in attitude extraction (l parallel to z_d). Using fallback x_d.');
     else
+        %x axis
         x_d = l_cross_zd / norm_l_cross_zd;
-    end    
+    end
+    %y axis
     y_d = cross(z_d, x_d);
+    %Rotational matrix desired
     Rd = [x_d, y_d, z_d];
     q_d = rotm2quat(Rd);
+
+
+    %% Rotational control part
     % quaternion error
     q_k   = q_k / norm(q_k);
     q_d = q_d / norm(q_d);
     q_d_conj = quatconj(q_d);
     q_bar_e  = quatmultiply(q_d_conj, q_k');
-    % q_e from q_bar_e
     q_bar_e0 = q_bar_e(1); q_bar_ev = q_bar_e(2:4).';
     q_e(:,k) = [1 - abs(q_bar_e0); q_bar_ev];
+
     % M : quaternion error dynamics computation
     M = quatM(q_bar_e);
+
     omega_v(:,k) = -2*k3*M.'*q_e(:,k);
     alpha_2(:,k) = omega_k - omega_v(:,k);
-    q_e_dot(:,k) = 0.5 * M * (alpha_2(:, k) + omega_v(:,k)); %dimension
+    q_e_dot(:,k) = 0.5 * M * (alpha_2(:, k) + omega_v(:,k)); 
     M_dot = quatM(q_e_dot(:,k));
     omega_v_dot = -2*k3*(M_dot.' * q_e(:,k) + M.' * q_e_dot(:,k));
+
     % tau
     tau = cross(omega_k,I*omega_k)+I*omega_v_dot-k4*alpha_2(:, k)-0.5*M.'*q_e;
     alpha_2_dot(:,k) = I\(-cross(omega_k,I*omega_k)+tau(:, k))-omega_v_dot;

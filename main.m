@@ -4,13 +4,12 @@
 % Authors:  Stefano MUSSO PIANTELLI, 
 %           Elias Charbel SALAMEH
 % 
-% Date:     15/01/2026
+% Date:     16/01/2026
 
 clear; 
 clc; 
 close all;
 
-%% Parameters
 % Physical parameters
 g       = 9.81;
 m       = 0.6;
@@ -24,7 +23,7 @@ dt      = 1e-3;        % smaller dt for better attitude dynamics resolution
 t       = 0:dt:Tend;
 N       = numel(t);
 
-%% Desired trajectory – Ascending spiral
+
 %run('Trajectory_spiral.m');
 run('Trajectory_lemniscate.m');
 %run('Trajectory_cylindrical.m');
@@ -32,11 +31,10 @@ run('Trajectory_lemniscate.m');
 
 %% State vector: X = [xi(3); v(3); q(4); Omega(3)]
 % quaternion q = [qw; qx; qy; qz], unit norm
-X       = zeros(13, N);
+X = zeros(13, N);
 
 % Initial conditions:
-xi0     = [0; 0; 0];              % initial position
-%xi0     = xi_d(0);                  % instead of [0;0;0]
+xi0     = [0; 0; 0];                % initial position
 v0      = [0; 0; 0];                % initial velocity
 q0      = [1; 0; 0; 0];             % initial attitude (no rotation)
 Omega0  = [0; 0; 0];                % initial angular velocity
@@ -51,10 +49,13 @@ k1  = 1;
 k2  = 1;
 k3  = 1;
 k4  = 1;
+
 a   = 1;
+
+%Offset
 d   = 0.0;
 
-%% New system
+%% New system after the control law
 e1 = zeros(3, N);
 e1_dot = zeros(3, N);
 e2 = zeros(3, N);
@@ -73,7 +74,7 @@ psi_d = zeros(1,N);
 tau = zeros(3,N);
 F_des_norm = zeros(1,N);
 
-%% sampled loop
+% sampled loop
 for k = 1:N-1
     tk = t(k);
 
@@ -82,7 +83,7 @@ for k = 1:N-1
     q_k = X(7:10,k);
     omega_k = X(11:13,k);
 
-    % target
+    % target, first and second derivate
     xi_d_val      = xi_d(tk);
     xi_d_dot_val  = xi_d_dot(tk);
     xi_d_ddot_val = xi_d_ddot(tk);
@@ -105,17 +106,18 @@ for k = 1:N-1
         end
     end
     % --- 
-
-    e1(:,k) = -(a*(xi_k - xi_d_val)-d); % e1
+    
+    % Translational control part
+    e1(:,k) = -(a*(xi_k - xi_d_val)-d); 
     xi_v_dot(:,k) = (k1*e1(:,k))/a + xi_d_dot_val;
-    e2(:,k) = xi_dot_k - xi_v_dot(:,k); % e2
-    e1_dot(:,k) = -a*e2(:,k)-k1*e1(:,k); % e1dot
+    e2(:,k) = xi_dot_k - xi_v_dot(:,k); 
+    e1_dot(:,k) = -a*e2(:,k)-k1*e1(:,k); 
     % F_des: control input
     vec1 = m * ( (a * e1(:,k)) - F_ext + ...
                  ((k1 * e1_dot(:,k)) / a + xi_d_ddot_val) - ...
                  (k2 * e2(:,k)) );
 
-    q_row = q_k.'; %q as a row 
+    q_row = q_k.';  
     q_left = quatinv(q_row);
     vec_quat = [0, vec1'];
 
@@ -126,7 +128,7 @@ for k = 1:N-1
     Fu(:,k) = F_des;
     F_des_norm(:,k) = norm(F_des);
 
-    % e2_dot
+    
     vec2 = Fu(:,k)/m;
     q_conj2 = quatconj(q_row);
     vec_quat2 = [0, vec2'];
@@ -144,6 +146,7 @@ for k = 1:N-1
     end
     
     z_d = F_des / F_des_norm(:,k);
+    %Temporal axis
     l_vec = [-sin(psi_d(:,k)); cos(psi_d(:,k)); 0];
 
     l_cross_zd = cross(l_vec, z_d);
@@ -158,31 +161,39 @@ for k = 1:N-1
         end
         warning('Singularity detected in attitude extraction (l parallel to z_d). Using fallback x_d.');
     else
+        %x axis
         x_d = l_cross_zd / norm_l_cross_zd;
-    end    
+    end
+    %y axis
     y_d = cross(z_d, x_d);
+    %Rotational matrix desired
     Rd = [x_d, y_d, z_d];
     q_d = rotm2quat(Rd);
+
+
+    % Rotational control part
     % quaternion error
     q_k   = q_k / norm(q_k);
     q_d = q_d / norm(q_d);
     q_d_conj = quatconj(q_d);
     q_bar_e  = quatmultiply(q_d_conj, q_k');
-    % q_e from q_bar_e
     q_bar_e0 = q_bar_e(1); q_bar_ev = q_bar_e(2:4).';
     q_e(:,k) = [1 - abs(q_bar_e0); q_bar_ev];
+
     % M : quaternion error dynamics computation
     M = quatM(q_bar_e);
+
     omega_v(:,k) = -2*k3*M.'*q_e(:,k);
     alpha_2(:,k) = omega_k - omega_v(:,k);
-    q_e_dot(:,k) = 0.5 * M * (alpha_2(:, k) + omega_v(:,k)); %dimension
+    q_e_dot(:,k) = 0.5 * M * (alpha_2(:, k) + omega_v(:,k)); 
     M_dot = quatM(q_e_dot(:,k));
     omega_v_dot = -2*k3*(M_dot.' * q_e(:,k) + M.' * q_e_dot(:,k));
-    % tau
+
+    %Tau
     tau = cross(omega_k,I*omega_k)+I*omega_v_dot-k4*alpha_2(:, k)-0.5*M.'*q_e;
     alpha_2_dot(:,k) = I\(-cross(omega_k,I*omega_k)+tau(:, k))-omega_v_dot;
 
-    % initial system
+    
     xi_dot = xi_dot_k;
     
     vec_rotated = quatmultiply(quatmultiply(q_row, vec_quat2), q_conj2);  % 1x4
@@ -191,13 +202,13 @@ for k = 1:N-1
 
     omega_dot = I\(tau-cross(omega_k,I*omega_k));
 
-    % noise
+    % Noise
     noise_pos   = 0.001 * randn(3,1);    % Position noise (usually 0 for physics, this is mostly sensor noise)
     noise_vel   = 0.001 * randn(3,1);    % Velocity noise (Wind gusts, drag irregularities) - in m/s
     noise_q     = 0.001 * randn(4,1);    % Attitude noise (Vibrations affecting integration)
     noise_omega = 0.001 * randn(3,1);    % Angular velocity noise (Torque disturbances) - in rad/s
 
-    % update
+    % System update with computed control
     X(1:3,k+1)   = xi_k       + dt * xi_dot + noise_pos;
     X(4:6,k+1)   = xi_dot_k   + dt * xi_ddot + noise_vel;
     
@@ -270,88 +281,16 @@ subplot(4,1,4);
 plot(t, Fu(3,:), 'b');
 ylabel('yaw torque'); grid on;
 
-% %% 3D Animation
-% fprintf('Starting 3D Animation...\n');
-% 
-% % Animation Parameters
-% anim_speed = 100; % Skip frames to make animation faster (Plot every 100th step)
-% scale_arrow = 0.5; % Length of the direction arrow
-% 
-% % Create Figure
-% figure('Name', '3D Drone Animation', 'Color', 'w');
-% axis equal;
-% grid on;
-% hold on;
-% view(45, 30);
-% xlabel('X [m]'); ylabel('Y [m]'); zlabel('Z [m]');
-% title('Quadcopter Trajectory Animation');
-% 
-% % limits (adjust based on your trajectory to keep view stable)
-% xlim([min(xi_d_all(1,:))-2, max(xi_d_all(1,:))+2]);
-% ylim([min(xi_d_all(2,:))-2, max(xi_d_all(2,:))+2]);
-% zlim([min(xi_d_all(3,:))-2, max(xi_d_all(3,:))+2]);
-% 
-% % Draw the desired trajectory (Static background)
-% plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), 'g--', 'LineWidth', 1, 'DisplayName', 'Desired Path');
-% 
-% % Initialize graphics objects (Drone, Trail, Arrow)
-% % Drone body (represented as a blue dot)
-% h_drone = plot3(0, 0, 0, 'bo', 'MarkerFaceColor', 'b', 'MarkerSize', 8, 'DisplayName', 'Drone');
-% 
-% % Trail (path taken so far)
-% h_trail = plot3(0, 0, 0, 'r-', 'LineWidth', 1, 'DisplayName', 'Flown Path');
-% 
-% % Orientation Arrow (Red line indicating Body-X / Heading)
-% h_arrow = line([0 0], [0 0], [0 0], 'Color', 'y', 'LineWidth', 2, 'DisplayName', 'Heading');
-% 
-% legend('show');
-% 
-% % Animation Loop
-% for k = 1:anim_speed:N
-%     % Extract current state
-%     pos = X(1:3, k);       % Position [x; y; z]
-%     quat = X(7:10, k);     % Quaternion [w; x; y; z]
-% 
-%     % Update Drone Position
-%     set(h_drone, 'XData', pos(1), 'YData', pos(2), 'ZData', pos(3));
-% 
-%     % Update Trail
-%     % (For performance, update trail in chunks or just the current data)
-%     set(h_trail, 'XData', X(1, 1:k), 'YData', X(2, 1:k), 'ZData', X(3, 1:k));
-% 
-%     % Calculate Heading Arrow
-%     % Convert quaternion to Rotation Matrix
-%     % Note: quat2rotm expects [w x y z] 
-%     R_current = quat2rotm(quat'); 
-% 
-%     % The Body-X axis in World Frame is the first column of R
-%     heading_vec = R_current(:, 1); 
-% 
-%     % Calculate arrow end point
-%     arrow_end = pos + (heading_vec * scale_arrow);
-% 
-%     % Update Arrow
-%     set(h_arrow, 'XData', [pos(1), arrow_end(1)], ...
-%         'YData', [pos(2), arrow_end(2)], ...
-%         'ZData', [pos(3), arrow_end(3)]);
-% 
-%     % Update Title with time
-%     title(sprintf('Simulation Time: %.2f s', t(k)));
-% 
-%     % Force draw
-%     drawnow limitrate; 
-%     pause(0.01);
-% end
 
 
-%% 3D Animation + Video Export
+%% 3D Animation + Video 
 fprintf('Starting 3D Animation...\n');
 
 % Animation Parameters
 anim_speed  = 100;      % Plot every anim_speed steps
 scale_arrow = 0.5;      % Length of heading arrow
 
-% ===================== FIGURE =====================
+% FIGURE
 figure('Name', '3D Drone Animation', 'Color', 'w');
 axis equal;
 grid on;
@@ -369,7 +308,7 @@ zlim([min(xi_d_all(3,:))-2, max(xi_d_all(3,:))+2]);
 plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), ...
       'g--', 'LineWidth', 1, 'DisplayName', 'Desired Path');
 
-% ===================== GRAPHICS OBJECTS =====================
+% GRAPHICS OBJECTS 
 % Drone body
 h_drone = plot3(0, 0, 0, 'bo', ...
     'MarkerFaceColor', 'b', 'MarkerSize', 8, 'DisplayName', 'Drone');
@@ -384,14 +323,14 @@ h_arrow = line([0 0], [0 0], [0 0], ...
 
 legend('show');
 
-% ===================== VIDEO WRITER =====================
+% VIDEO WRITER
 video_name = 'Quadcopter_Animation.mp4';
 v = VideoWriter(video_name, 'MPEG-4');
 v.FrameRate = 30;     % frames per second
 v.Quality   = 100;    % max quality
 open(v);
 
-% ===================== ANIMATION LOOP =====================
+%ANIMATION LOOP
 for k = 1:anim_speed:N
 
     % Current state
@@ -425,6 +364,6 @@ for k = 1:anim_speed:N
 
 end
 
-% ===================== CLOSE VIDEO =====================
+%CLOSE VIDEO
 close(v);
 fprintf('Video successfully saved: %s\n', video_name);
