@@ -4,7 +4,7 @@
 % Authors:  Stefano MUSSO PIANTELLI, 
 %           Elias Charbel SALAMEH
 % 
-% Date:     12/01/2026
+% Date:     15/01/2026
 
 clear; 
 clc; 
@@ -19,7 +19,7 @@ I       = diag([Ixx Iyy Izz]);
 F_ext   = [-0.1*randn(1,1);-0.1*randn(1,1);-g];
 
 % Simulation parameters
-Tend    = 20;
+Tend    = 40;
 dt      = 1e-3;        % smaller dt for better attitude dynamics resolution
 t       = 0:dt:Tend;
 N       = numel(t);
@@ -35,7 +35,7 @@ run('Trajectory_cylindrical.m');
 X       = zeros(13, N);
 
 % Initial conditions:
-xi0     = [10; -5; 7];                % initial position
+xi0     = [10; -5; 7];              % initial position
 %xi0     = xi_d(0);                  % instead of [0;0;0]
 v0      = [2; 0; 2];                % initial velocity
 q0      = [1; 0; 0; 0];             % initial attitude (no rotation)
@@ -43,12 +43,12 @@ Omega0  = [0; 0; 0];                % initial angular velocity
 X(:,1)  = [xi0; v0; q0; Omega0];
 
 %% Gains
-k1  = 1;
-k2  = 1;
-k3  = 1;
-k4  = 1;
+k1  = rand(1);
+k2  = rand(1);
+k3  = rand(1);
+k4  = rand(1);
 a   = 1;
-d   = 0;
+d   = 0.5;
 
 %% New system
 e1 = zeros(3, N);
@@ -66,6 +66,8 @@ q_e_dot = zeros(4,N);
 alpha_2_dot = zeros(3,N);
 Fu = zeros(3,N);
 psi_d = zeros(1,N);
+tau = zeros(3,N);
+F_des_norm = zeros(1,N);
 
 %% sampled loop
 for k = 1:N-1
@@ -81,48 +83,63 @@ for k = 1:N-1
     xi_d_dot_val  = xi_d_dot(tk);
     xi_d_ddot_val = xi_d_ddot(tk);
 
+    % variable yaw logic
+    % Calculate desired heading based on planar velocity
+    vx_des = xi_d_dot_val(1);
+    vy_des = xi_d_dot_val(2);
+    horizontal_speed = sqrt(vx_des^2 + vy_des^2);
 
+    if horizontal_speed > 0.1 % Threshold (0.1 m/s)
+        % if moving: look where we are going
+        psi_d(k) = atan2(vy_des, vx_des);
+    else
+        % if hovering or vertical: ignore new 
+        if k > 1
+            psi_d(k) = psi_d(k-1);
+        else
+            psi_d(k) = 0; % init
+        end
+    end
+    % --- 
 
-
-    e1(:,k) = -(a*(xi_k - xi_d_val)-d); %e1
-    xi_v_dot(:,k) = (k1*e1(:,k))/a + xi_d_dot_val; %equation 23
-    e2(:,k) = xi_dot_k - xi_v_dot(:,k); %e2
-    e1_dot(:,k) = -a*e2(:,k)-k1*e1(:,k); %e1dot
+    e1(:,k) = -(a*(xi_k - xi_d_val)-d); % e1
+    xi_v_dot(:,k) = (k1*e1(:,k))/a + xi_d_dot_val;
+    e2(:,k) = xi_dot_k - xi_v_dot(:,k); % e2
+    e1_dot(:,k) = -a*e2(:,k)-k1*e1(:,k); % e1dot
     % F_des: control input
     vec1 = m * ( (a * e1(:,k)) - F_ext + ...
                  ((k1 * e1_dot(:,k)) / a + xi_d_ddot_val) - ...
-                 (k2 * e2(:,k)) ); %equazione 30, qFq*
-
+                 (k2 * e2(:,k)) );
 
     q_row = q_k.'; %q as a row 
-    q_left = quatinv(q_row); 
-    % q_conj = quatconj(q_row);
-    % q_right = quatinv(q_conj);
+    q_left = quatinv(q_row);
     vec_quat = [0, vec1'];
 
-    %comput F_u
+    %compute F_u
     F_des_quat = quatmultiply(quatmultiply(q_left, vec_quat), q_row);
     F_des = F_des_quat(2:4)';
 
     Fu(:,k) = F_des;
-    F_des_norm = norm(F_des);
+    F_des_norm(:,k) = norm(F_des);
 
     % e2_dot
     vec2 = Fu(:,k)/m;
     q_conj2 = quatconj(q_row);
     vec_quat2 = [0, vec2'];
-    e2_dot_quat = quatmultiply(quatmultiply(q_row, vec_quat2), q_conj2) + F_ext - (k1*e1_dot(:,k)/a + xi_d_ddot_val);
-    e2_dot(:,k) = e2_dot_quat(2:4);
+    e2_dot_quat = quatmultiply(quatmultiply(q_row, vec_quat2), q_conj2) ...
+                    + F_ext - (k1*e1_dot(:,k)/a + xi_d_ddot_val); 
+    e2_dot(:,k) = e2_dot_quat(2:4); % e2dot
+
     % attitude extraction
-    if F_des_norm < 1e-6
+    if F_des_norm(:,k) < 1e-6
         % Fallback: Zero thrust and identity orientation (or keep previous)
         Fu_des_norm = 0;
         q_d = [1, 0, 0, 0]; % Identity quaternion [w x y z]
         warning('Fu magnitude is near zero. Thrust set to 0, attitude set to identity.');
         % tau = 0;
     end
-    %z_d = F_des / Fu(:,k); %%%%your're doing a divison between vector, no sense
-    z_d = F_des / F_des_norm;
+    
+    z_d = F_des / F_des_norm(:,k);
     l_vec = [-sin(psi_d(:,k)); cos(psi_d(:,k)); 0];
 
     l_cross_zd = cross(l_vec, z_d);
@@ -146,7 +163,7 @@ for k = 1:N-1
     q_k   = q_k / norm(q_k);
     q_d = q_d / norm(q_d);
     q_d_conj = quatconj(q_d);
-    q_bar_e  = quatmultiply(q_d_conj, q_k'); %aggiunto un trasposto
+    q_bar_e  = quatmultiply(q_d_conj, q_k');
     % q_e from q_bar_e
     q_bar_e0 = q_bar_e(1); q_bar_ev = q_bar_e(2:4).';
     q_e(:,k) = [1 - abs(q_bar_e0); q_bar_ev];
@@ -164,75 +181,160 @@ for k = 1:N-1
     % initial system
     xi_dot = xi_dot_k;
     
-    % q_k = quatmultiply(quatinv(q_conj),q_e(:,k));
-    % q_k = q_k / norm(q_k);
-    %xi_ddot = quatmultiply(quatmultiply(q_row, vec_quat2), q_conj2) + F_ext;
     vec_rotated = quatmultiply(quatmultiply(q_row, vec_quat2), q_conj2);  % 1x4
     xi_ddot = vec_rotated(2:4).' + F_ext;  % 3x1
     q_dot = 0.5*quatmultiply(q_k',[0 (omega_k.')]);
 
     omega_dot = I\(tau-cross(omega_k,I*omega_k));
 
+    % noise
+    noise_pos   = 0.001 * randn(3,1);    % Position noise (usually 0 for physics, this is mostly sensor noise)
+    noise_vel   = 0.001 * randn(3,1);    % Velocity noise (Wind gusts, drag irregularities) - in m/s
+    noise_q     = 0.001 * randn(4,1);    % Attitude noise (Vibrations affecting integration)
+    noise_omega = 0.001 * randn(3,1);    % Angular velocity noise (Torque disturbances) - in rad/s
+
     % update
-    X(1:3,k+1) = xi_k       + dt * xi_dot;
-    X(4:6,k+1) = xi_dot_k   + dt * xi_ddot;
-    X(7:10,k+1) = q_k       + dt * q_dot.';
-    X(11:13,k+1) = omega_k  + dt * omega_dot(:, k);
+    X(1:3,k+1)   = xi_k       + dt * xi_dot + noise_pos;
+    X(4:6,k+1)   = xi_dot_k   + dt * xi_ddot + noise_vel;
+    
+    q_next       = q_k        + dt * q_dot.' + noise_q;
+    X(7:10,k+1)  = q_next / norm(q_next);
+    
+    X(11:13,k+1) = omega_k    + dt * omega_dot(:, k) + noise_omega;
 end
 
-
-%% Calcolo traiettoria desiderata completa
-xi_d_all = zeros(3, N);  % 3 righe: x, y, z
+%% computation of the desired position xi
+xi_d_all = zeros(3, N);
 for k = 1:N
     xi_d_all(:,k) = xi_d(t(k));
 end
 
-%% Calcolo traiettoria desiderata completa
-xi_d_all = zeros(3, N);  % 3 righe: x, y, z
-for k = 1:N
-    xi_d_all(:,k) = xi_d(t(k));  % funzione xi_d restituisce colonna 3x1
-end
-
-%% Plotting dei Risultati
-
-% Estrazione posizioni simulate dallo stato X
+%% Plots
 xi_sim = X(1:3, :);
 
-% 1. Visualizzazione 3D della Traiettoria
-figure('Name', 'Traiettoria Quadricottero 3D', 'Color', 'w');
+% 3D position evolution
+figure('Name', '3D Position', 'Color', 'k');
 plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), 'g--', 'LineWidth', 1.5); hold on;
-plot3(xi_sim(1,:), xi_sim(2,:), xi_sim(3,:), 'c', 'LineWidth', 1.5);
+plot3(xi_sim(1,:), xi_sim(2,:), xi_sim(3,:), 'r', 'LineWidth', 1.5);
 grid on; axis equal;
 xlabel('X [m]'); ylabel('Y [m]'); zlabel('Z [m]');
-legend('Desiderata (Spiral)', 'Simulata (Backstepping)');
-title('Inseguimento Traiettoria 3D');
+legend('Desired (Spiral)', 'Simulated (Backstepping)');
+title('3D Trajectory Tracking');
 view(45, 30);
 
-% 2. Analisi temporale per ogni asse (x, y, z)
-figure('Name', 'Analisi Assi x, y, z', 'Color', 'w');
-
+% Temporal analysis for each axis (x, y, z)
+figure('Name', 'Axis Analysis x, y, z', 'Color', 'k');
 subplot(3,1,1);
-plot(t, xi_d_all(1,:), 'g--', t, xi_sim(1,:), 'c');
+plot(t, xi_d_all(1,:), 'g--', t, xi_sim(1,:), 'r');
 ylabel('x [m]'); grid on;
-legend('Desiderata', 'Simulata');
-title('Inseguimento Posizione sui singoli assi');
+legend('Desired', 'Simulated');
+title('Position Tracking on individual axes');
 
 subplot(3,1,2);
-plot(t, xi_d_all(2,:), 'g--', t, xi_sim(2,:), 'c');
+plot(t, xi_d_all(2,:), 'g--', t, xi_sim(2,:), 'r');
 ylabel('y [m]'); grid on;
 
 subplot(3,1,3);
-plot(t, xi_d_all(3,:), 'g--', t, xi_sim(3,:), 'c');
-ylabel('z [m]'); xlabel('Tempo [s]'); grid on;
+plot(t, xi_d_all(3,:), 'g--', t, xi_sim(3,:), 'r');
+ylabel('z [m]'); xlabel('Time [s]'); grid on;
 
-% 3. Plot dell'Errore di Posizione
+% Position Error Plot
 error_pos = xi_sim - xi_d_all;
-figure('Name', 'Errore di Inseguimento', 'Color', 'w');
-plot(t, error_pos(1,:), 'r', t, error_pos(2,:), 'g', t, error_pos(3,:), 'c');
+figure('Name', 'Tracking Error', 'Color', 'k');
+plot(t, error_pos(1,:), 'r', t, error_pos(2,:), 'g', t, error_pos(3,:), 'b');
 grid on;
-xlabel('Tempo [s]'); ylabel('Errore [m]');
-legend('Errore x', 'Errore y', 'Errore z');
-title('Evoluzione dell''errore nel tempo');
+xlabel('Time [s]'); ylabel('Error [m]');
+legend('Error x', 'Error y', 'Error z');
+title('Error evolution over time');
 
+% control input applied
+figure('Name', 'Control Inputs', 'Color', 'k');
+subplot(4,1,1);
+plot(t, F_des_norm(1,:), 'b');
+ylabel('Thrust'); grid on;
+title('Thrust w.r.t. time');
 
+subplot(4,1,2);
+plot(t, Fu(1,:), 'b');
+ylabel('roll torque'); grid on;
 
+subplot(4,1,3);
+plot(t, Fu(2,:), 'b');
+ylabel('pitch torque'); grid on;
+
+subplot(4,1,4);
+plot(t, Fu(3,:), 'b');
+ylabel('yaw torque'); grid on;
+
+%% 3D Animation
+fprintf('Starting 3D Animation...\n');
+
+% Animation Parameters
+anim_speed = 100; % Skip frames to make animation faster (Plot every 100th step)
+scale_arrow = 0.5; % Length of the direction arrow
+
+% Create Figure
+figure('Name', '3D Drone Animation', 'Color', 'w');
+axis equal;
+grid on;
+hold on;
+view(45, 30);
+xlabel('X [m]'); ylabel('Y [m]'); zlabel('Z [m]');
+title('Quadcopter Trajectory Animation');
+
+% limits (adjust based on your trajectory to keep view stable)
+xlim([min(xi_d_all(1,:))-2, max(xi_d_all(1,:))+2]);
+ylim([min(xi_d_all(2,:))-2, max(xi_d_all(2,:))+2]);
+zlim([min(xi_d_all(3,:))-2, max(xi_d_all(3,:))+2]);
+
+% Draw the desired trajectory (Static background)
+plot3(xi_d_all(1,:), xi_d_all(2,:), xi_d_all(3,:), 'g--', 'LineWidth', 1, 'DisplayName', 'Desired Path');
+
+% Initialize graphics objects (Drone, Trail, Arrow)
+% Drone body (represented as a blue dot)
+h_drone = plot3(0, 0, 0, 'bo', 'MarkerFaceColor', 'b', 'MarkerSize', 8, 'DisplayName', 'Drone');
+
+% Trail (path taken so far)
+h_trail = plot3(0, 0, 0, 'r-', 'LineWidth', 1, 'DisplayName', 'Flown Path');
+
+% Orientation Arrow (Red line indicating Body-X / Heading)
+h_arrow = line([0 0], [0 0], [0 0], 'Color', 'y', 'LineWidth', 2, 'DisplayName', 'Heading');
+
+legend('show');
+
+% Animation Loop
+for k = 1:anim_speed:N
+    % Extract current state
+    pos = X(1:3, k);       % Position [x; y; z]
+    quat = X(7:10, k);     % Quaternion [w; x; y; z]
+
+    % Update Drone Position
+    set(h_drone, 'XData', pos(1), 'YData', pos(2), 'ZData', pos(3));
+
+    % Update Trail
+    % (For performance, update trail in chunks or just the current data)
+    set(h_trail, 'XData', X(1, 1:k), 'YData', X(2, 1:k), 'ZData', X(3, 1:k));
+
+    % Calculate Heading Arrow
+    % Convert quaternion to Rotation Matrix
+    % Note: quat2rotm expects [w x y z] 
+    R_current = quat2rotm(quat'); 
+
+    % The Body-X axis in World Frame is the first column of R
+    heading_vec = R_current(:, 1); 
+
+    % Calculate arrow end point
+    arrow_end = pos + (heading_vec * scale_arrow);
+
+    % Update Arrow
+    set(h_arrow, 'XData', [pos(1), arrow_end(1)], ...
+        'YData', [pos(2), arrow_end(2)], ...
+        'ZData', [pos(3), arrow_end(3)]);
+
+    % Update Title with time
+    title(sprintf('Simulation Time: %.2f s', t(k)));
+
+    % Force draw
+    drawnow limitrate; 
+    pause(0.01);
+end
