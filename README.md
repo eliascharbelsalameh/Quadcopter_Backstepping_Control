@@ -9,16 +9,16 @@ This project is a part of the ARS5 course in UTC.
 
 # Date
 
-Monday 12 January 2026
+Thursday 15 January 2026
 
 
-#Instruction to run the code
+# Instruction to run the code
 
 The following files are function to compute the the desired trajecotry function and its derivatives:
-  -trajectory_point.m;
-  -trajectory_cylindral.m
-  -trajectory_lemniscate.m
-  -trajectory_spiral.m
+  - trajectory_point.m;
+  - trajectory_cylindral.m
+  - trajectory_lemniscate.m
+  - trajectory_spiral.m
   
 In order to run a simulation it is necessary comment out the desire trajectory and comment others from lines 27 to 31 in the file named main.m
 Additonaly, you can follow the same procedure to simulate the Multi-Agent control in the file named multi_main.m
